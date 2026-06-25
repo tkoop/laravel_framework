@@ -2,6 +2,7 @@
 
 namespace Illuminate\Tests\Testing;
 
+use Exception;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\View\View;
 use Illuminate\Cookie\CookieValuePrefix;
@@ -9,12 +10,14 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\UrlGenerator;
 use Illuminate\Session\ArraySessionHandler;
+use Illuminate\Session\NullSessionHandler;
 use Illuminate\Session\Store;
 use Illuminate\Support\Collection;
 use Illuminate\Support\MessageBag;
@@ -258,6 +261,39 @@ class TestResponseTest extends TestCase
         }
     }
 
+    public function testAssertStreamedAndAssertNotStreamed()
+    {
+        $notStreamedResponse = $this->makeMockResponse([
+            'render' => 'expected response data',
+        ]);
+
+        $streamedResponse = TestResponse::fromBaseResponse(
+            new StreamedResponse(function () {
+                $stream = fopen('php://memory', 'r+');
+                fwrite($stream, 'expected response data');
+                rewind($stream);
+                fpassthru($stream);
+            })
+        );
+
+        $notStreamedResponse->assertNotStreamed();
+        $streamedResponse->assertStreamed();
+
+        try {
+            $notStreamedResponse->assertStreamed();
+            $this->fail('xxxx');
+        } catch (AssertionFailedError $e) {
+            $this->assertSame("Expected the response to be streamed, but it wasn't.\nFailed asserting that false is true.", $e->getMessage());
+        }
+
+        try {
+            $streamedResponse->assertNotStreamed();
+            $this->fail('xxxx');
+        } catch (AssertionFailedError $e) {
+            $this->assertSame("Response was unexpectedly streamed.\nFailed asserting that false is true.", $e->getMessage());
+        }
+    }
+
     public function testAssertStreamedContent()
     {
         $response = TestResponse::fromBaseResponse(
@@ -322,6 +358,40 @@ class TestResponseTest extends TestCase
         }
     }
 
+    public function testJsonAssertionsOnStreamedJsonContent()
+    {
+        $response = TestResponse::fromBaseResponse(
+            new StreamedJsonResponse([
+                'data' => $this->yieldTestModels(),
+            ])
+        );
+
+        $response->assertJsonPath('data', [
+            ['id' => 1],
+            ['id' => 2],
+            ['id' => 3],
+        ]);
+
+        try {
+            $response->assertJsonPath('data', [
+                ['id' => 1],
+                ['id' => 2],
+            ]);
+            $this->fail('xxxx');
+        } catch (AssertionFailedError $e) {
+            $this->assertSame('Failed asserting that two arrays are identical.', $e->getMessage());
+        }
+
+        $response->assertJsonCount(3, 'data');
+
+        try {
+            $response->assertJsonCount(2, 'data');
+            $this->fail('xxxx');
+        } catch (AssertionFailedError $e) {
+            $this->assertSame("Failed to assert that the response count matched the expected 2\nFailed asserting that actual size 3 matches expected size 2.", $e->getMessage());
+        }
+    }
+
     public function yieldTestModels()
     {
         yield new TestModel(['id' => 1]);
@@ -373,6 +443,28 @@ class TestResponseTest extends TestCase
         $response->assertSee(['bar & baz', 'baz & qux']);
     }
 
+    public function testAssertSeeHtml()
+    {
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertSeeHtml('<li>foo</li>');
+        $response->assertSeeHtml(['<li>baz</li>', '<li>bar</li>']);
+    }
+
+    public function testAssertSeeHtmlCanFail()
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertSeeHtml('<li>item</li>');
+        $response->assertSeeHtml(['<li>not</li>', '<li>found</li>']);
+    }
+
     public function testAssertSeeInOrder()
     {
         $response = $this->makeMockResponse([
@@ -404,6 +496,39 @@ class TestResponseTest extends TestCase
         ]);
 
         $response->assertSeeInOrder(['foo', 'qux', 'bar', 'baz']);
+    }
+
+    public function testAssertSeeHtmlInOrder()
+    {
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertSeeHtmlInOrder(['<li>foo</li>', '<li>bar</li>', '<li>baz</li>']);
+
+        $response->assertSeeHtmlInOrder(['<li>foo</li>', '<li>bar</li>', '<li>baz</li>', '<li>foo</li>']);
+    }
+
+    public function testAssertSeeHtmlInOrderCanFail()
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertSeeHtmlInOrder(['<li>baz</li>', '<li>bar</li>', '<li>foo</li>']);
+    }
+
+    public function testAssertSeeHtmlInOrderCanFail2()
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertSeeHtmlInOrder(['<li>foo</li>', '<li>qux</li>', '<li>bar</li>', '<li>baz</li>']);
     }
 
     public function testAssertSeeText()
@@ -534,6 +659,28 @@ class TestResponseTest extends TestCase
 
         $response->assertDontSee('laravel & php');
         $response->assertDontSee(['php & friends', 'laravel & php']);
+    }
+
+    public function testAssertDontSeeHtml()
+    {
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertDontSeeHtml('<li>laravel</li>');
+        $response->assertDontSeeHtml(['<li>php</li>', '<li>friends</li>']);
+    }
+
+    public function testAssertDontSeeHtmlCanFail()
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $response = $this->makeMockResponse([
+            'render' => '<ul><li>foo</li><li>bar</li><li>baz</li><li>foo</li></ul>',
+        ]);
+
+        $response->assertDontSeeHtml('<li>foo</li>');
+        $response->assertDontSeeHtml(['<li>baz</li>', '<li>bar</li>']);
     }
 
     public function testAssertDontSeeText()
@@ -1132,6 +1279,7 @@ class TestResponseTest extends TestCase
 
         $response->assertJson(function (AssertableJson $json) {
             $json->where('0.foo', 'foo 0');
+            $json->where('0.meta', []);
         });
     }
 
@@ -1335,6 +1483,20 @@ class TestResponseTest extends TestCase
         $response->assertJsonFragment(['id' => 10]);
     }
 
+    public function testAssertJsonFragments()
+    {
+        $response = TestResponse::fromBaseResponse(new Response(new JsonSerializableSingleResourceStub));
+
+        $response->assertJsonFragments([
+            ['foo' => 'foo 0'],
+        ]);
+
+        $response->assertJsonFragments([
+            ['foo' => 'foo 0'],
+            ['foo' => 'foo 1'],
+        ]);
+    }
+
     public function testAssertJsonFragmentCanFail()
     {
         $this->expectException(AssertionFailedError::class);
@@ -1380,6 +1542,88 @@ class TestResponseTest extends TestCase
         $response = TestResponse::fromBaseResponse(new Response(new JsonSerializableSingleResourceStub));
 
         $response->assertJsonStructure(['*' => ['foo', 'bar', 'foobar']]);
+    }
+
+    public function testAssertExactJsonStructure()
+    {
+        $response = TestResponse::fromBaseResponse(new Response(new JsonSerializableMixedResourcesStub));
+
+        // Without structure
+        $response->assertExactJsonStructure();
+
+        // At root
+        try {
+            $response->assertExactJsonStructure(['foo']);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['foo', 'foobar', 0, 'bars', 'baz', 'barfoo', 'numeric_keys']);
+
+        // Nested
+        try {
+            $response->assertExactJsonStructure(['foobar' => ['foobar_foo'], 'foo', 0, 'bars', 'baz', 'barfoo', 'numeric_keys']);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['foobar' => ['foobar_foo', 'foobar_bar'], 'foo', 0, 'bars', 'baz', 'barfoo', 'numeric_keys']);
+
+        // Wildcard (repeating structure)
+        try {
+            $response->assertExactJsonStructure(['bars' => ['*' => ['bar']], 'foo', 'foobar', 0, 'baz', 'barfoo', 'numeric_keys']);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['bars' => ['*' => ['bar', 'foo']], 'foo', 'foobar', 0, 'baz', 'barfoo', 'numeric_keys']);
+
+        // Wildcard (numeric keys)
+        try {
+            $response->assertExactJsonStructure(['numeric_keys' => ['*' => ['bar']], 'foo', 'foobar', 0, 'bars', 'baz', 'barfoo']);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['numeric_keys' => ['*' => ['bar', 'foo']], 'foo', 'foobar', 0, 'bars', 'baz', 'barfoo']);
+
+        // Nested after wildcard
+        try {
+            $response->assertExactJsonStructure(['baz' => ['*' => ['foo', 'bar' => ['foo']]], 'foo', 'foobar', 0, 'bars', 'barfoo', 'numeric_keys']);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['baz' => ['*' => ['foo', 'bar' => ['foo', 'bar']]], 'foo', 'foobar', 0, 'bars', 'barfoo', 'numeric_keys']);
+
+        // Wildcard (repeating structure) at root
+        $response = TestResponse::fromBaseResponse(new Response(new JsonSerializableSingleResourceStub));
+
+        try {
+            $response->assertExactJsonStructure(['*' => ['foo', 'bar']]);
+            $failed = false;
+        } catch (AssertionFailedError $e) {
+            $failed = true;
+        }
+
+        $this->assertTrue($failed);
+
+        $response->assertExactJsonStructure(['*' => ['foo', 'bar', 'foobar', 'meta']]);
     }
 
     public function testAssertJsonCount()
@@ -1489,6 +1733,103 @@ class TestResponseTest extends TestCase
         );
 
         $testResponse->assertJsonValidationErrors('foo');
+    }
+
+    public function testAssertOnlyJsonValidationErrors()
+    {
+        $data = [
+            'status' => 'ok',
+            'errors' => ['foo' => 'oops', 'bar' => 'another oops'],
+        ];
+
+        $testResponse = TestResponse::fromBaseResponse(
+            (new Response)->setContent(json_encode($data))
+        );
+
+        try {
+            $testResponse->assertOnlyJsonValidationErrors('foo');
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'bar\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyJsonValidationErrors(['foo', 'bar']);
+
+        try {
+            $testResponse->assertOnlyJsonValidationErrors(['foo' => 'oops']);
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'bar\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyJsonValidationErrors(['foo' => 'oops', 'bar' => 'another oops']);
+    }
+
+    public function testAssertJsonValidationErrorsUsingAssertOnlyInvalid()
+    {
+        $data = [
+            'status' => 'ok',
+            'errors' => ['foo' => 'oops', 'bar' => 'another oops'],
+        ];
+
+        $testResponse = TestResponse::fromBaseResponse(
+            (new Response('', 200, ['Content-Type' => 'application/json']))->setContent(json_encode($data))
+        );
+
+        try {
+            $testResponse->assertOnlyInvalid('foo');
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'bar\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyInvalid(['foo', 'bar']);
+
+        try {
+            $testResponse->assertOnlyInvalid(['foo' => 'oops']);
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'bar\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyInvalid(['foo' => 'oops', 'bar' => 'another oops']);
+    }
+
+    public function testAssertSessionOnlyValidationErrorsUsingAssertOnlyInvalid()
+    {
+        app()->instance('session.store', $store = new Store('test-session', new ArraySessionHandler(1)));
+
+        $store->put('errors', $errorBag = new ViewErrorBag);
+
+        $errorBag->put('default', new MessageBag([
+            'first_name' => [
+                'Your first name is required',
+                'Your first name must be at least 1 character',
+            ],
+            'last_name' => [
+                'Your last name is required',
+            ],
+        ]));
+
+        $testResponse = TestResponse::fromBaseResponse(new Response);
+
+        try {
+            $testResponse->assertOnlyInvalid('first_name');
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'last_name\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyInvalid(['first_name', 'last_name']);
+
+        try {
+            $testResponse->assertOnlyInvalid(['first_name' => 'required']);
+            $this->fail();
+        } catch (AssertionFailedError $e) {
+            $this->assertStringStartsWith('Response has unexpected validation errors: \'last_name\'', $e->getMessage());
+        }
+
+        $testResponse->assertOnlyInvalid(['first_name' => 'required', 'last_name' => 'required']);
     }
 
     public function testAssertJsonValidationErrorsUsingAssertInvalid()
@@ -2196,9 +2537,7 @@ class TestResponseTest extends TestCase
     {
         $container = Container::getInstance();
         $encrypter = new Encrypter(str_repeat('a', 16));
-        $container->singleton('encrypter', function () use ($encrypter) {
-            return $encrypter;
-        });
+        $container->instance('encrypter', $encrypter);
 
         $cookieName = 'cookie-name';
         $cookieValue = 'cookie-value';
@@ -2290,6 +2629,27 @@ class TestResponseTest extends TestCase
         );
 
         $response->assertRedirect();
+    }
+
+    public function testAssertRedirectBack()
+    {
+        app()->instance('session.store', $store = new Store('test-session', new ArraySessionHandler(1)));
+
+        $store->setPreviousUrl('https://url.com');
+
+        app('url')->setSessionResolver(fn () => app('session.store'));
+
+        $response = TestResponse::fromBaseResponse(
+            (new Response('', 302))->withHeaders(['Location' => 'https://url.com'])
+        );
+
+        $response->assertRedirectBack();
+
+        $this->expectException(ExpectationFailedException::class);
+
+        $store->setPreviousUrl('https://url.net');
+
+        $response->assertRedirectBack();
     }
 
     public function testGetDecryptedCookie()
@@ -2439,9 +2799,7 @@ class TestResponseTest extends TestCase
     {
         $container = Container::getInstance();
         $encrypter = new Encrypter(str_repeat('a', 16));
-        $container->singleton('encrypter', function () use ($encrypter) {
-            return $encrypter;
-        });
+        $container->instance('encrypter', $encrypter);
 
         $cookieName = 'cookie-name';
         $cookieValue = 'cookie-value';
@@ -2458,6 +2816,73 @@ class TestResponseTest extends TestCase
         $this->assertInstanceOf(Cookie::class, $cookie);
         $this->assertEquals($cookieName, $cookie->getName());
         $this->assertEquals($cookieValue, $cookie->getValue());
+    }
+
+    public function testHandledExceptionIsIncludedInAssertionFailure()
+    {
+        $response = TestResponse::fromBaseResponse(new Response('', 500))
+            ->withExceptions(collect([new Exception('Unexpected exception.')]));
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessageMatches('/Expected response status code \[200\] but received 500.*Exception: Unexpected exception/s');
+
+        $response->assertStatus(200);
+    }
+
+    public function testValidationErrorsAreIncludedInAssertionFailure()
+    {
+        $response = TestResponse::fromBaseResponse(
+            tap(new RedirectResponse('/'))
+                ->setSession(new Store('test-session', new NullSessionHandler()))
+                ->withErrors([
+                    'first_name' => 'The first name field is required.',
+                    'last_name' => 'The last name field is required.',
+                ])
+        );
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessageMatches('/Expected response status code \[200\] but received 302.*The first name field is required.*The last name field is required/s');
+
+        $response->assertStatus(200);
+    }
+
+    public function testJsonErrorsAreIncludedInAssertionFailure()
+    {
+        $response = TestResponse::fromBaseResponse(new JsonResponse([
+            'errors' => [
+                'first_name' => ['The first name field is required.'],
+                'last_name' => ['The last name field is required.'],
+            ],
+        ], 422));
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessageMatches('/Expected response status code \[200\] but received 422.*The first name field is required.*The last name field is required/s');
+
+        $response->assertStatus(200);
+    }
+
+    public function testItHandlesFalseJson()
+    {
+        $response = TestResponse::fromBaseResponse(
+            new Response(false, 422, ['Content-Type' => 'application/json'])
+        );
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessage('Expected response status code [200] but received 422.');
+
+        $response->assertStatus(200);
+    }
+
+    public function testItHandlesEncodedJson()
+    {
+        $response = TestResponse::fromBaseResponse(
+            new Response('b"x£½V*.I,)-V▓R╩¤V¬\x05\x00+ü\x059"', 422, ['Content-Type' => 'application/json', 'Content-Encoding' => 'gzip'])
+        );
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessage('Expected response status code [200] but received 422.');
+
+        $response->assertStatus(200);
     }
 
     private function makeMockResponse($content)
@@ -2509,10 +2934,10 @@ class JsonSerializableSingleResourceStub implements JsonSerializable
     public function jsonSerialize(): array
     {
         return [
-            ['foo' => 'foo 0', 'bar' => 'bar 0', 'foobar' => 'foobar 0'],
-            ['foo' => 'foo 1', 'bar' => 'bar 1', 'foobar' => 'foobar 1'],
-            ['foo' => 'foo 2', 'bar' => 'bar 2', 'foobar' => 'foobar 2'],
-            ['foo' => 'foo 3', 'bar' => 'bar 3', 'foobar' => 'foobar 3'],
+            ['foo' => 'foo 0', 'bar' => 'bar 0', 'foobar' => 'foobar 0', 'meta' => []],
+            ['foo' => 'foo 1', 'bar' => 'bar 1', 'foobar' => 'foobar 1', 'meta' => null],
+            ['foo' => 'foo 2', 'bar' => 'bar 2', 'foobar' => 'foobar 2', 'meta' => []],
+            ['foo' => 'foo 3', 'bar' => 'bar 3', 'foobar' => 'foobar 3', 'meta' => null],
         ];
     }
 }

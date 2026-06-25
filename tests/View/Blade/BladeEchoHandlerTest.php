@@ -4,7 +4,7 @@ namespace Illuminate\Tests\View\Blade;
 
 use Exception;
 use Illuminate\Support\Fluent;
-use Illuminate\Support\Str;
+use Illuminate\Support\Stringable;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 class BladeEchoHandlerTest extends AbstractBladeTestCase
@@ -60,13 +60,11 @@ class BladeEchoHandlerTest extends AbstractBladeTestCase
             throw new Exception('The fluent object has been successfully handled!');
         });
 
-        app()->singleton('blade.compiler', function () {
-            return $this->compiler;
-        });
+        app()->instance('blade.compiler', $this->compiler);
 
         $exampleObject = new Fluent();
 
-        eval(Str::of($this->compiler->compileString($blade))->remove(['<?php', '?>']));
+        eval((new Stringable($this->compiler->compileString($blade)))->remove(['<?php', '?>']));
     }
 
     public static function handlerLogicDataProvider()
@@ -84,12 +82,10 @@ class BladeEchoHandlerTest extends AbstractBladeTestCase
     {
         $this->compiler->stringable('iterable', $closure);
 
-        app()->singleton('blade.compiler', function () {
-            return $this->compiler;
-        });
+        app()->instance('blade.compiler', $this->compiler);
 
         ob_start();
-        eval(Str::of($this->compiler->compileString($blade))->remove(['<?php', '?>']));
+        eval((new Stringable($this->compiler->compileString($blade)))->remove(['<?php', '?>']));
         $output = ob_get_contents();
         ob_end_clean();
 
@@ -108,12 +104,10 @@ class BladeEchoHandlerTest extends AbstractBladeTestCase
     #[DataProvider('nonStringableDataProvider')]
     public function testHandlerWorksWithNonStringables($blade, $expectedOutput)
     {
-        app()->singleton('blade.compiler', function () {
-            return $this->compiler;
-        });
+        app()->instance('blade.compiler', $this->compiler);
 
         ob_start();
-        eval(Str::of($this->compiler->compileString($blade))->remove(['<?php', '?>']));
+        eval((new Stringable($this->compiler->compileString($blade)))->remove(['<?php', '?>']));
         $output = ob_get_contents();
         ob_end_clean();
 

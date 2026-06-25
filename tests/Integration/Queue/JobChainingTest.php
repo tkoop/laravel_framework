@@ -289,6 +289,30 @@ class JobChainingTest extends QueueTestCase
         $this->assertTrue(JobChainAddingAddedJob::$ranAt->isAfter(JobChainAddingExistingJob::$ranAt));
     }
 
+    public function testChainJobsCanBePrependedBatch()
+    {
+        Bus::chain([
+            new JobChainAddingPrependedBatch('j1'),
+            new JobChainingNamedTestJob('j2'),
+        ])->dispatch();
+
+        $this->runQueueWorkerCommand(['--stop-when-empty' => true]);
+
+        $this->assertEquals(['j1', 'b1', 'b2', 'j2'], JobRunRecorder::$results);
+    }
+
+    public function testChainJobsCanBeAppendedBatch()
+    {
+        Bus::chain([
+            new JobChainAddingAppendingBatch('j1'),
+            new JobChainingNamedTestJob('j2'),
+        ])->dispatch();
+
+        $this->runQueueWorkerCommand(['--stop-when-empty' => true]);
+
+        $this->assertEquals(['j1', 'j2', 'b1', 'b2'], JobRunRecorder::$results);
+    }
+
     public function testChainJobsCanBeAppendedWithoutExistingChain()
     {
         JobChainAddingAppendingJob::dispatch();
@@ -458,6 +482,24 @@ class JobChainingTest extends QueueTestCase
 
         $this->assertEquals(['c1', 'c2', 'b1', 'b3'], JobRunRecorder::$results);
         $this->assertEquals(['batch failed', 'chain failed'], JobRunRecorder::$failures);
+    }
+
+    public function testChainBatchFailureNotAllowedOnSyncDoesNotDuplicateChainCatch()
+    {
+        config(['queue.default' => 'sync']);
+
+        JobRunRecorder::reset();
+
+        Bus::chain([
+            new JobChainingNamedTestJob('c1'),
+            Bus::batch([
+                new JobChainingTestFailingBatchedJob('fb-sync'),
+            ])->allowFailures(false)->catch(fn () => JobRunRecorder::recordFailure('batch failed')),
+            new JobChainingNamedTestJob('c2'),
+        ])->catch(fn () => JobRunRecorder::recordFailure('chain failed'))->dispatch();
+
+        $this->assertEquals(['batch failed', 'chain failed'], JobRunRecorder::$failures);
+        $this->assertSame(1, collect(JobRunRecorder::$failures)->filter(fn ($m) => $m === 'chain failed')->count());
     }
 
     public function testChainConditionable()
@@ -650,6 +692,50 @@ class JobChainAddingAppendingJob implements ShouldQueue
     public function handle()
     {
         $this->appendToChain(new JobChainAddingAddedJob);
+    }
+}
+
+class JobChainAddingAppendingBatch implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable;
+
+    public string $id;
+
+    public function __construct(string $id)
+    {
+        $this->id = $id;
+    }
+
+    public function handle()
+    {
+        $this->appendToChain(Bus::batch([
+            new JobChainingNamedTestJob('b1'),
+            new JobChainingNamedTestJob('b2'),
+        ]));
+
+        JobRunRecorder::record($this->id);
+    }
+}
+
+class JobChainAddingPrependedBatch implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable;
+
+    public string $id;
+
+    public function __construct(string $id)
+    {
+        $this->id = $id;
+    }
+
+    public function handle()
+    {
+        $this->prependToChain(Bus::batch([
+            new JobChainingNamedTestJob('b1'),
+            new JobChainingNamedTestJob('b2'),
+        ]));
+
+        JobRunRecorder::record($this->id);
     }
 }
 

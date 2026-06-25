@@ -7,6 +7,7 @@ use ArrayIterator;
 use Countable;
 use Error;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Env;
 use Illuminate\Support\Optional;
 use Illuminate\Support\Sleep;
@@ -62,14 +63,30 @@ class SupportHelpersTest extends TestCase
         $this->assertTrue(blank(null));
         $this->assertTrue(blank(''));
         $this->assertTrue(blank('  '));
+        $this->assertTrue(blank(new Stringable('')));
+        $this->assertTrue(blank(new Stringable('  ')));
         $this->assertFalse(blank(10));
         $this->assertFalse(blank(true));
         $this->assertFalse(blank(false));
         $this->assertFalse(blank(0));
         $this->assertFalse(blank(0.0));
+        $this->assertFalse(blank(new Stringable(' FooBar ')));
 
         $object = new SupportTestCountable();
         $this->assertTrue(blank($object));
+    }
+
+    public function testBlankDoesntJsonSerializeModels()
+    {
+        $model = new class extends Model
+        {
+            public function jsonSerialize(): mixed
+            {
+                throw new RuntimeException('Model should not be serialized');
+            }
+        };
+
+        $this->assertFalse(blank($model));
     }
 
     public function testClassBasename()
@@ -97,16 +114,41 @@ class SupportHelpersTest extends TestCase
         $this->assertSame('..', class_basename('\Foo\Bar\Baz\\..\\'));
     }
 
+    public function testWhen()
+    {
+        $this->assertEquals('Hello', when(true, 'Hello'));
+        $this->assertNull(when(false, 'Hello'));
+        $this->assertEquals('There', when(1 === 1, 'There')); // strict types
+        $this->assertEquals('There', when(1 == '1', 'There')); // loose types
+        $this->assertNull(when(1 == 2, 'There'));
+        $this->assertNull(when('1', fn () => null));
+        $this->assertNull(when(0, fn () => null));
+        $this->assertEquals('True', when([1, 2, 3, 4], 'True')); // Array
+        $this->assertNull(when([], 'True')); // Empty Array = Falsy
+        $this->assertEquals('True', when(new StdClass, fn () => 'True')); // Object
+        $this->assertEquals('World', when(false, 'Hello', 'World'));
+        $this->assertEquals('World', when(1 === 0, 'Hello', 'World')); // strict types
+        $this->assertEquals('World', when(1 == '0', 'Hello', 'World')); // loose types
+        $this->assertNull(when('', fn () => 'There', fn () => null));
+        $this->assertNull(when(0, fn () => 'There', fn () => null));
+        $this->assertEquals('False', when([], 'True', 'False'));  // Empty Array = Falsy
+        $this->assertTrue(when(true, fn ($value) => $value, fn ($value) => ! $value)); // lazy evaluation
+        $this->assertTrue(when(false, fn ($value) => $value, fn ($value) => ! $value)); // lazy evaluation
+    }
+
     public function testFilled()
     {
         $this->assertFalse(filled(null));
         $this->assertFalse(filled(''));
         $this->assertFalse(filled('  '));
+        $this->assertFalse(filled(new Stringable('')));
+        $this->assertFalse(filled(new Stringable('  ')));
         $this->assertTrue(filled(10));
         $this->assertTrue(filled(true));
         $this->assertTrue(filled(false));
         $this->assertTrue(filled(0));
         $this->assertTrue(filled(0.0));
+        $this->assertTrue(filled(new Stringable(' FooBar ')));
 
         $object = new SupportTestCountable();
         $this->assertFalse(filled($object));
@@ -367,6 +409,27 @@ class SupportHelpersTest extends TestCase
         $this->assertEquals(['dollar', 'asterisk', 'caret'], data_get($array, 'symbols.*.description'));
         $this->assertEquals('dollar', data_get($array, 'symbols.\{last}.description'));
         $this->assertEquals('caret', data_get($array, 'symbols.{last}.description'));
+    }
+
+    public function testDataGetStar()
+    {
+        $data = ['foo' => 'bar'];
+        $this->assertEquals(['bar'], data_get($data, '*'));
+
+        $data = collect(['foo' => 'bar']);
+        $this->assertEquals(['bar'], data_get($data, '*'));
+    }
+
+    public function testDataGetNullKey()
+    {
+        $data = ['foo' => 'bar'];
+
+        $this->assertEquals(['foo' => 'bar'], data_get($data, null));
+        $this->assertEquals(['foo' => 'bar'], data_get($data, null, '42'));
+        $this->assertEquals(['foo' => 'bar'], data_get($data, [null]));
+
+        $data = ['foo' => 'bar', 'baz' => 42];
+        $this->assertEquals(['foo' => 'bar', 'baz' => 42], data_get($data, [null, 'foo']));
     }
 
     public function testDataFill()

@@ -32,6 +32,30 @@ class RateLimitedTest extends TestCase
         $this->assertJobRanSuccessfully(RateLimitedTestJob::class);
     }
 
+    public function testUnlimitedJobsAreExecutedUsingBackedEnum()
+    {
+        $rateLimiter = $this->app->make(RateLimiter::class);
+
+        $rateLimiter->for(BackedEnumNamedRateLimited::FOO, function ($job) {
+            return Limit::none();
+        });
+
+        $this->assertJobRanSuccessfully(RateLimitedTestJobUsingBackedEnum::class);
+        $this->assertJobRanSuccessfully(RateLimitedTestJobUsingBackedEnum::class);
+    }
+
+    public function testUnlimitedJobsAreExecutedUsingUnitEnum()
+    {
+        $rateLimiter = $this->app->make(RateLimiter::class);
+
+        $rateLimiter->for(UnitEnumNamedRateLimited::LARAVEL, function ($job) {
+            return Limit::none();
+        });
+
+        $this->assertJobRanSuccessfully(RateLimitedTestJobUsingUnitEnum::class);
+        $this->assertJobRanSuccessfully(RateLimitedTestJobUsingUnitEnum::class);
+    }
+
     public function testRateLimitedJobsAreNotExecutedOnLimitReached2()
     {
         $cache = m::mock(Cache::class);
@@ -39,6 +63,7 @@ class RateLimitedTest extends TestCase
         $cache->shouldReceive('add')->andReturn(true, true);
         $cache->shouldReceive('increment')->andReturn(1);
         $cache->shouldReceive('has')->andReturn(true);
+        $cache->shouldReceive('getStore')->andReturn(new ArrayStore);
 
         $rateLimiter = new RateLimiter($cache);
         $this->app->instance(RateLimiter::class, $rateLimiter);
@@ -313,5 +338,49 @@ class RateLimitedDontReleaseTestJob extends RateLimitedTestJob
     public function middleware()
     {
         return [(new RateLimited('test'))->dontRelease()];
+    }
+}
+
+enum BackedEnumNamedRateLimited: string
+{
+    case FOO = 'bar';
+}
+
+enum UnitEnumNamedRateLimited
+{
+    case LARAVEL;
+}
+
+class RateLimitedTestJobUsingBackedEnum
+{
+    use InteractsWithQueue, Queueable;
+
+    public static $handled = false;
+
+    public function handle()
+    {
+        static::$handled = true;
+    }
+
+    public function middleware()
+    {
+        return [new RateLimited(BackedEnumNamedRateLimited::FOO)];
+    }
+}
+
+class RateLimitedTestJobUsingUnitEnum
+{
+    use InteractsWithQueue, Queueable;
+
+    public static $handled = false;
+
+    public function handle()
+    {
+        static::$handled = true;
+    }
+
+    public function middleware()
+    {
+        return [new RateLimited(UnitEnumNamedRateLimited::LARAVEL)];
     }
 }

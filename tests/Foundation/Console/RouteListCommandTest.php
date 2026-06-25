@@ -48,9 +48,7 @@ class RouteListCommandTest extends TestCase
 
         $kernel->prependToMiddlewarePriority('Middleware 5');
 
-        $laravel->singleton(Kernel::class, function () use ($kernel) {
-            return $kernel;
-        });
+        $laravel->instance(Kernel::class, $kernel);
 
         $router->get('/example', function () {
             return 'Hello World';
@@ -59,7 +57,7 @@ class RouteListCommandTest extends TestCase
         $router->get('/sub-example', function () {
             return 'Hello World';
         })->domain('sub')
-        ->middleware('exampleMiddleware');
+            ->middleware('exampleMiddleware');
 
         $router->get('/example-group', function () {
             return 'Hello Group';
@@ -95,6 +93,26 @@ class RouteListCommandTest extends TestCase
         $output = $this->app->output();
 
         $expectedOrder = '[{"domain":"sub","method":"GET|HEAD","uri":"sub-example","name":null,"action":"Closure","middleware":["exampleMiddleware"]},{"domain":null,"method":"GET|HEAD","uri":"example-group","name":null,"action":"Closure","middleware":["web","auth"]},{"domain":null,"method":"GET|HEAD","uri":"example","name":null,"action":"Closure","middleware":["exampleMiddleware"]}]';
+
+        $this->assertJsonStringEqualsJsonString($expectedOrder, $output);
+    }
+
+    public function testSortRouteListDefault()
+    {
+        $this->app->call('route:list', ['--json' => true]);
+        $output = $this->app->output();
+
+        $expectedOrder = '[{"domain":null,"method":"GET|HEAD","uri":"example","name":null,"action":"Closure","middleware":["exampleMiddleware"]},{"domain":null,"method":"GET|HEAD","uri":"example-group","name":null,"action":"Closure","middleware":["web","auth"]}, {"domain":"sub","method":"GET|HEAD","uri":"sub-example","name":null,"action":"Closure","middleware":["exampleMiddleware"]}]';
+
+        $this->assertJsonStringEqualsJsonString($expectedOrder, $output);
+    }
+
+    public function testSortRouteListPrecedence()
+    {
+        $this->app->call('route:list', ['--json' => true, '--sort' => 'definition']);
+        $output = $this->app->output();
+
+        $expectedOrder = '[{"domain":null,"method":"GET|HEAD","uri":"example","name":null,"action":"Closure","middleware":["exampleMiddleware"]},{"domain":"sub","method":"GET|HEAD","uri":"sub-example","name":null,"action":"Closure","middleware":["exampleMiddleware"]}, {"domain":null,"method":"GET|HEAD","uri":"example-group","name":null,"action":"Closure","middleware":["web","auth"]}]';
 
         $this->assertJsonStringEqualsJsonString($expectedOrder, $output);
     }

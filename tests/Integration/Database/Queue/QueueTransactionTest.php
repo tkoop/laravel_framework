@@ -5,7 +5,9 @@ namespace Illuminate\Tests\Integration\Database\Queue;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Tests\Integration\Database\DatabaseTestCase;
+use Orchestra\Testbench\Attributes\WithConfig;
 use Orchestra\Testbench\Attributes\WithMigration;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Throwable;
@@ -14,26 +16,24 @@ use function Orchestra\Testbench\remote;
 
 #[RequiresPhpExtension('pcntl')]
 #[WithMigration('laravel', 'queue')]
+#[WithConfig('queue.default', 'database')]
 class QueueTransactionTest extends DatabaseTestCase
 {
     use DatabaseMigrations;
 
-    protected function defineEnvironment($app)
+    protected function setUp(): void
     {
-        parent::defineEnvironment($app);
+        parent::setUp();
 
-        $config = $app['config'];
-
-        if ($config->get('database.default') === 'testing') {
+        if ($this->usesSqliteInMemoryDatabaseConnection()) {
             $this->markTestSkipped('Test does not support using :memory: database connection');
         }
-
-        $config->set(['queue.default' => 'database']);
     }
 
-    public function testItCanHandleTimeoutJob()
+    #[DataProvider('timeoutJobs')]
+    public function testItCanHandleTimeoutJob($job)
     {
-        dispatch(new Fixtures\TimeOutJobWithTransaction);
+        dispatch($job);
 
         $this->assertSame(1, DB::table('jobs')->count());
         $this->assertSame(0, DB::table('failed_jobs')->count());
@@ -50,5 +50,15 @@ class QueueTransactionTest extends DatabaseTestCase
 
         $this->assertSame(0, DB::table('jobs')->count());
         $this->assertSame(1, DB::table('failed_jobs')->count());
+    }
+
+    public static function timeoutJobs(): array
+    {
+        return [
+            [new Fixtures\TimeOutJobWithTransaction()],
+            [new Fixtures\TimeOutJobWithNestedTransactions()],
+            [new Fixtures\TimeOutNonBatchableJobWithTransaction()],
+            [new Fixtures\TimeOutNonBatchableJobWithNestedTransactions()],
+        ];
     }
 }

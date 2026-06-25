@@ -7,9 +7,12 @@ on:
       - '*.x'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   update:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: true
@@ -50,6 +53,7 @@ jobs:
             Illuminate\\Support\\Facades\\Broadcast \
             Illuminate\\Support\\Facades\\Bus \
             Illuminate\\Support\\Facades\\Cache \
+            Illuminate\\Support\\Facades\\Concurrency \
             Illuminate\\Support\\Facades\\Config \
             Illuminate\\Support\\Facades\\Context \
             Illuminate\\Support\\Facades\\Cookie \
@@ -57,6 +61,7 @@ jobs:
             Illuminate\\Support\\Facades\\DB \
             Illuminate\\Support\\Facades\\Date \
             Illuminate\\Support\\Facades\\Event \
+            Illuminate\\Support\\Facades\\Exceptions \
             Illuminate\\Support\\Facades\\File \
             Illuminate\\Support\\Facades\\Gate \
             Illuminate\\Support\\Facades\\Hash \
@@ -76,6 +81,7 @@ jobs:
             Illuminate\\Support\\Facades\\Request \
             Illuminate\\Support\\Facades\\Response \
             Illuminate\\Support\\Facades\\Route \
+            Illuminate\\Support\\Facades\\Schedule \
             Illuminate\\Support\\Facades\\Schema \
             Illuminate\\Support\\Facades\\Session \
             Illuminate\\Support\\Facades\\Storage \

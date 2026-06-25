@@ -137,6 +137,20 @@ class SupportLazyCollectionIsLazyTest extends TestCase
         $this->assertEnumerations(1, $secondEnumerations);
     }
 
+    public function testMultiplyIsLazy()
+    {
+        $this->assertDoesNotEnumerate(function ($collection) {
+            $collection->multiply(2);
+        });
+
+        $this->assertEnumeratesCollectionOnce(
+            $this->make([1, 2, 3]),
+            function ($collection) {
+                return $collection->multiply(3)->all();
+            }
+        );
+    }
+
     public function testContainsIsLazy()
     {
         $this->assertEnumerates(5, function ($collection) {
@@ -1569,7 +1583,7 @@ class SupportLazyCollectionIsLazyTest extends TestCase
     {
         $data = $this->make(['a' => 0])->concat(
             $this->make([['a' => 1], ['a' => 2], ['a' => 3], ['a' => 4]])
-                 ->mapInto(stdClass::class)
+                ->mapInto(stdClass::class)
         );
 
         $this->assertDoesNotEnumerateCollection($data, function ($collection) {
